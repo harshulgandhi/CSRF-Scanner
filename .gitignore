@@ -1,3 +1,4 @@
 *.pyc
 output.txt
-allLink.txt
+allLinks.txt
+reponse-url.txt
