@@ -1,3 +1,5 @@
+from scrapy.utils.response import get_base_url
+from scrapy.utils.url import urljoin_rfc
 from scrapy.selector import HtmlXPathSelector
 from scrapy.contrib.linkextractors.sgml import SgmlLinkExtractor
 from scrapy.contrib.spiders import CrawlSpider, Rule
@@ -13,35 +15,45 @@ from scrapy.http.cookies import CookieJar
 class CrawlerSpider(scrapy.Spider):
 	name = "crawler"
 	allowed_domains = ["app4.com"]
-	start_urls = ['https://app4.com','https://app4.com/admin/status.php']
+	start_urls = ['https://app4.com']
 	counter = 0
 	urlMapO = UrlMap()
 	f = open("crawler/allLinks.txt","w")
+	f1 = open("crawler/response-url.txt","w")
 
-
+	'''
+	Function gets called automatically in the beginning,
+	it is only called once.
+	Logs in the application
+	'''
 	def start_requests(self):
-		self.printText("CALLING START_REQUESTS***********************************")
 		return [scrapy.FormRequest(self.start_urls[0], 
 			formdata={'username': 'admin@admin.com', 'password': 'admin', 'dologin':'1'},
 			callback=self.after_login)]
 
+	'''
+	Below function has been commented out as it is
+	not returning logged in forms
+	'''
     # 'log' and 'pwd' are names of the username and password fields
     # depends on each website, you'll have to change those fields properly
     # one may use loginform lib https://github.com/scrapy/loginform to make it easier
     # when handling multiple credentials from multiple sites.
-	def parse(self, response):
-		#self.f.write(str(response))
-		# cookieJar = response.meta.setdefault('cookie_jar', CookieJar())
-		# cookieJar.extract_cookies(response, response.request)
-		# self.printText("COOKIE IS ==> " + str(cookieJar._cookies))
-		# resp = FormRequest.from_response(
-	 #        response,
-	 #        formdata={'username': 'admin@admin.com', 'password': 'admin','dologin':'1'},
-	 #        callback=self.after_login,
-	 #        #meta = {'dont_merge_cookies': True, 'cookie_jar': cookieJar}
-	 #    )
-		return response
+	# def parse(self, response):
+	# 	self.f.write(str(response))
+	# 	cookieJar = response.meta.setdefault('cookie_jar', CookieJar())
+	# 	cookieJar.extract_cookies(response, response.request)
+	# 	self.printText("COOKIE IS ==> " + str(cookieJar._cookies))
+	# 	return FormRequest.from_response(
+	#         response,
+	#         formdata={'username': 'admin@admin.com', 'password': 'admin','dologin':'1'},
+	#         callback=self.after_login
+	#     )
 
+	'''
+	Call back function after
+	login
+	'''
 	def after_login(self, response):
 	    # check login succeed before going on
 	    self.printText(str(response.body))
@@ -56,7 +68,7 @@ class CrawlerSpider(scrapy.Spider):
 	        	
 	        #index.php is the page that gets loaded as soon as we log in.
 	        #This is manual thing for now, we will have to make this generic
-	        link = "https://app4.com/index.php"
+	        link = start_urls[0]+"/index.php"
 	        self.urlMapO.addUrl(link)
 	        return Request(url=link,
 	                       callback=self.parse_page)
@@ -72,36 +84,41 @@ class CrawlerSpider(scrapy.Spider):
 	    # i = CrawlerItem()
 	    # find all the link in the <a href> tag
 	    links = hxs.select('//a/@href').extract()
-	    print "this is the first list of link"
-	    print "***********************************\n"
-	    for link in links:
-	    	print link + "\n"
-	    print "***********************************\n"
-	    self.printText("Links length is : "+str(len(links)))
+	    			
 	    # Yield a new request for each link we found
-	    # #this may lead to infinite crawling...
+	    
+
+	    #self.f1.write(str(response.url)+"\n")
 	    for link in links:
 			self.printText("THIS IS A LINK=> " + link)
-
+			
 	        #only process external/full link
 			if link.find("http") > -1:
-				
-				if self.checkUrlStatus(link) == 1:
-					continue
-				else:
-					self.f.write(str(link))
-					resp = Request(url=link, callback=self.parse_page) 
-					#self.f.write(str(resp))
-					self.urlMapO.addUrl(link)
-					yield resp
-			else:
-				link = self.start_urls[0] +"/"+ link
-				
-				if self.checkUrlStatus(link) == 1:
+				#checkUrlStatus calls another class where
+				#we are maintaining a map to check if
+				#a url has been visited.
+				#Infinite crawling avoidance.		
+				if self.checkUrlStatus(link) == 1 or link.find('logout.php')>-1:
 					continue
 				else:
 					self.f.write("\n"+str(link))
 					resp = Request(url=link, callback=self.parse_page) 
+					self.urlMapO.addUrl(link)
+					yield resp
+			else:
+				# constructing page url by getting
+				# base url of current page for ex
+				#('http://appx.com/admin') and
+				# concatenating href link ('/status.php')
+				link = urljoin_rfc(get_base_url(response),link)
+				
+				if self.checkUrlStatus(link) == 1 or link.find('logout.php')>-1:
+					continue
+				else:
+					self.f.write("\n"+str(link))
+					resp = Request(url=link, callback=self.parse_page) 
+					if link == "https://app4.com/admin/project.php":
+						self.printPage(response.body,"project.php")
 					#self.f.write("\n"+str(resp))
 					self.urlMapO.addUrl(link)
 					yield resp
@@ -110,7 +127,7 @@ class CrawlerSpider(scrapy.Spider):
 	    item = CrawlerItem()
 	    item["title"] = hxs.select('//title/text()').extract()[0]
 	    item["url"] = response.url
-	    self.urlMapO.printMap()
+	    #self.urlMapO.printMap() this is the map that holds each url's status
 	    yield self.collect_item(item)
 
 
@@ -124,6 +141,11 @@ class CrawlerSpider(scrapy.Spider):
 	def printText(self,text):
 		print text
 		print "=======================================================================================\n"
+
+	def printPage(self,body,name):
+		fo = open(name,"w")
+		fo.write(body)
+		fo.close
 
 ''' 
 this part of code was self written. Now we are using
