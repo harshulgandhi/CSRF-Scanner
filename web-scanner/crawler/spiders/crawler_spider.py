@@ -6,28 +6,45 @@ from scrapy.http import Request
 import scrapy
 from scrapy.http import FormRequest
 from scrapy import log
+from crawler.items import CrawlerItem
+from url_map import UrlMap
+from scrapy.http.cookies import CookieJar
 
-class CrawlerSpider(Spider):
+class CrawlerSpider(scrapy.Spider):
 	name = "crawler"
 	allowed_domains = ["app4.com"]
-	start_urls = ['https://app4.com']
+	start_urls = ['https://app4.com','https://app4.com/admin/status.php']
 	counter = 0
-	f = open("allLinks.txt","w")
+	urlMapO = UrlMap()
+	f = open("crawler/allLinks.txt","w")
+
+
+	def start_requests(self):
+		self.printText("CALLING START_REQUESTS***********************************")
+		return [scrapy.FormRequest(self.start_urls[0], 
+			formdata={'username': 'admin@admin.com', 'password': 'admin', 'dologin':'1'},
+			callback=self.after_login)]
 
     # 'log' and 'pwd' are names of the username and password fields
     # depends on each website, you'll have to change those fields properly
     # one may use loginform lib https://github.com/scrapy/loginform to make it easier
     # when handling multiple credentials from multiple sites.
 	def parse(self, response):
-	    return FormRequest.from_response(
-	        response,
-	        formdata={'username': 'admin@admin.com', 'password': 'admin'},
-	        callback=self.after_login
-	    )
+		#self.f.write(str(response))
+		# cookieJar = response.meta.setdefault('cookie_jar', CookieJar())
+		# cookieJar.extract_cookies(response, response.request)
+		# self.printText("COOKIE IS ==> " + str(cookieJar._cookies))
+		# resp = FormRequest.from_response(
+	 #        response,
+	 #        formdata={'username': 'admin@admin.com', 'password': 'admin','dologin':'1'},
+	 #        callback=self.after_login,
+	 #        #meta = {'dont_merge_cookies': True, 'cookie_jar': cookieJar}
+	 #    )
+		return response
 
 	def after_login(self, response):
 	    # check login succeed before going on
-	    self.printText(str(response))
+	    self.printText(str(response.body))
 	    if "ERROR: Invalid username" in response.body:
 	        self.log("Login failed", level=log.ERROR)
 	        return
@@ -36,10 +53,12 @@ class CrawlerSpider(Spider):
 	    else:
 	    	self.printText("Successfully logged in to APP4")
 	        self.log("Login succeed!", level=log.DEBUG)
-	        
+	        	
 	        #index.php is the page that gets loaded as soon as we log in.
 	        #This is manual thing for now, we will have to make this generic
-	        return Request(url="https://app4.com/index.php",
+	        link = "https://app4.com/index.php"
+	        self.urlMapO.addUrl(link)
+	        return Request(url=link,
 	                       callback=self.parse_page)
 
 
@@ -49,26 +68,49 @@ class CrawlerSpider(Spider):
 	    """ Scrape useful stuff from page, and spawn new requests
 	    """
 	    hxs = HtmlXPathSelector(response)
+
 	    # i = CrawlerItem()
 	    # find all the link in the <a href> tag
 	    links = hxs.select('//a/@href').extract()
-
+	    print "this is the first list of link"
+	    print "***********************************\n"
+	    for link in links:
+	    	print link + "\n"
+	    print "***********************************\n"
+	    self.printText("Links length is : "+str(len(links)))
 	    # Yield a new request for each link we found
 	    # #this may lead to infinite crawling...
 	    for link in links:
-			print "THIS IS A LINK" + link
+			self.printText("THIS IS A LINK=> " + link)
+
 	        #only process external/full link
 			if link.find("http") > -1:
-				self.f.write(str(link))
-				yield Request(url=link, callback=self.parse_page)
+				
+				if self.checkUrlStatus(link) == 1:
+					continue
+				else:
+					self.f.write(str(link))
+					resp = Request(url=link, callback=self.parse_page) 
+					#self.f.write(str(resp))
+					self.urlMapO.addUrl(link)
+					yield resp
 			else:
-				link = start_urls[0] + link
-				self.f.write(str(link))
+				link = self.start_urls[0] +"/"+ link
+				
+				if self.checkUrlStatus(link) == 1:
+					continue
+				else:
+					self.f.write("\n"+str(link))
+					resp = Request(url=link, callback=self.parse_page) 
+					#self.f.write("\n"+str(resp))
+					self.urlMapO.addUrl(link)
+					yield resp
 
             
-	    item = LinkItem()
+	    item = CrawlerItem()
 	    item["title"] = hxs.select('//title/text()').extract()[0]
 	    item["url"] = response.url
+	    self.urlMapO.printMap()
 	    yield self.collect_item(item)
 
 
@@ -76,9 +118,10 @@ class CrawlerSpider(Spider):
 	def collect_item(self, item):
 	    return item
 
+	def checkUrlStatus(self,url):
+		return self.urlMapO.getUrlStatus(url)
 
 	def printText(self,text):
-		print "=======================================================================================\n"
 		print text
 		print "=======================================================================================\n"
 
@@ -97,7 +140,7 @@ def parse(self,response):
 			link = self.start_urls[0] + link.extract()
 		else:
 			link = link.extract()
-		f.write(str(link)+"\n")
+		f.write(str(link)+"")
 		self.counter+=1
 		resp =Request(link, callback=self.parse) 
 		f1.write(str(resp))
@@ -112,14 +155,14 @@ def parse(self,response):
 	allLinks2 = Selector(response).xpath('//link[*]/@href')
 	f = open("allLinks.txt","w")
 	for link in allLinks:
-		f.write(str(link)+"\n")
+		f.write(str(link)+"")
 	for link in allLinks2:
-		f.write(str(link)+"\n")
+		f.write(str(link)+"")
 	print "*****************Menu item received*******************"
 	print "len(allLinks) ==> ",len(allLinks)
 	i=0
 	for menuItem in menuItems:
-		print "**************Printing items***********************\n"
+		print "**************Printing items***********************"
 		i+=1
 		item = CrawlerItem()
 		item['url']	= menuItem.xpath('//*[@id="jsn-pos-mainmenu"]/div[2]/div/div/ul/li['+str(i)+']/a/@href').extract()[0]
