@@ -14,7 +14,7 @@ class UrlMap():
 	def printMap(self):
 		print "\n************************************************************************************\n"
 		for key in self.urlMap:
-			print key +" : "+str(self.urlMap[key])
+			print str(key) +" : "+str(self.urlMap[key])
 
 		print "\n************************************************************************************\n"
 

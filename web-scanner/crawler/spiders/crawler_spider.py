@@ -68,7 +68,7 @@ class CrawlerSpider(scrapy.Spider):
 	        	
 	        #index.php is the page that gets loaded as soon as we log in.
 	        #This is manual thing for now, we will have to make this generic
-	        link = start_urls[0]+"/index.php"
+	        link = self.start_urls[0]+"/index.php"
 	        self.urlMapO.addUrl(link)
 	        return Request(url=link,
 	                       callback=self.parse_page)
@@ -80,10 +80,34 @@ class CrawlerSpider(scrapy.Spider):
 	    """ Scrape useful stuff from page, and spawn new requests
 	    """
 	    hxs = HtmlXPathSelector(response)
-
+	    
 	    # i = CrawlerItem()
 	    # find all the link in the <a href> tag
+	    #linkWithOnClick = hxs.select('//a[@onclick]')
+	    linkWithOnClick2 = hxs.select('//a[@onclick]/@href').extract()
+	   
+	    #for linksWOC in linkWithOnClick:
+	    	# if str(linksWOC).find('onclick') > -1:
+	    	# 	self.printText("ONCLICK FOUND : "+str(linksWOC))
+	    	# else:
+	    	#self.printText("ONCLICK : "+str(linksWOC))
+
+	    for li in linkWithOnClick2:
+	    	self.printText("Found link with onClick : "+str(li))
+	    	if li.find("http") > -1:
+	    		self.printText("Found link with on")
+	    		self.urlMapO.addUrl(li)
+	    		self.f.write("\n"+str(li))
+	    	else:
+	    		liCmplt = urljoin_rfc(get_base_url(response),li)
+	    		self.urlMapO.addUrl(liCmplt)
+	    		self.f.write("\n"+str(liCmplt))
+
+	    	self.printText("ONCLICK@href : "+str(li))
+		    #self.urlMapO.addUrl(linksWOC)
+		    #self.urlMapO.printMap()
 	    links = hxs.select('//a/@href').extract()
+
 	    			
 	    # Yield a new request for each link we found
 	    
@@ -117,8 +141,6 @@ class CrawlerSpider(scrapy.Spider):
 				else:
 					self.f.write("\n"+str(link))
 					resp = Request(url=link, callback=self.parse_page) 
-					if link == "https://app4.com/admin/project.php":
-						self.printPage(response.body,"project.php")
 					#self.f.write("\n"+str(resp))
 					self.urlMapO.addUrl(link)
 					yield resp
