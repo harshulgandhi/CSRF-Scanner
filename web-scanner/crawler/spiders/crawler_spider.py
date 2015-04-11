@@ -8,8 +8,8 @@ from scrapy.http import Request
 import scrapy
 from scrapy.http import FormRequest
 from scrapy import log
-from crawler.items import CrawlerItem
 from crawler.forms import FormItem
+from crawler.forms import parameterItem	
 from url_map import UrlMap
 from scrapy.http.cookies import CookieJar
 
@@ -57,7 +57,7 @@ class CrawlerSpider(scrapy.Spider):
 	'''
 	def after_login(self, response):
 	    # check login succeed before going on
-	    self.printText(str(response.body)
+	    self.printText(str(response.body))
 	    if "ERROR: Invalid username" in response.body:
 	        self.log("Login failed", level=log.ERROR)
 	        return
@@ -152,16 +152,28 @@ class CrawlerSpider(scrapy.Spider):
 	    item["url"] = response.url
 	    #self.urlMapO.printMap() this is the map that holds each url's status
 	    yield self.collect_item(item)
-
-	    forms = response.selector.xpath('//form')
-	    for form in forms:
-	        formitem = FormItem()
-		formitem['url'] = response.url
-		formitem['action'] = form.xpath('//form/@action').extract()
-		formitem['method'] = form.xpath('//form/@method').extract()
-		yield self.collect_item(formitem)
-
-
+	    #Extracting forms from the web app
+	    if response.url.find('?') == -1:
+	    	forms = response.selector.xpath('//form')
+	    	i=0
+	    	for form in forms:
+	       		formitem = FormItem()
+			formitem['url'] = response.url
+			formitem['action'] = forms[i].xpath('./@action').extract()
+			formitem['method'] = forms[i].xpath('.//@method').extract()
+			parameterslist = []
+			parameters = forms[i].xpath('.//input')
+			j=0
+			for parameter in parameters:
+				pm = parameterItem()
+				pm['typeparameter'] = parameters[j].xpath('.//@type').extract()
+				pm['name'] = parameters[j].xpath('.//@name').extract()
+				pm['value'] = parameters[j].xpath('.//@value').extract()
+				parameterslist.append(pm)
+				j=j+1
+			formitem['parameters'] = parameterslist
+			i=i+1
+			yield self.collect_item(formitem)
 
 	def collect_item(self, item):
 	    return item
