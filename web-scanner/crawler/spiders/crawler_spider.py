@@ -159,7 +159,10 @@ class CrawlerSpider(scrapy.Spider):
 	    	for form in forms:
 	       		formitem = FormItem()
 			li = forms[i].xpath('./@action').extract()[0]
-			formitem['url'] = urljoin_rfc(get_base_url(response),li)
+			if li.find("http") > -1:
+				formitem['url'] = li	
+			else:	
+				formitem['url'] = urljoin_rfc(get_base_url(response),li)
 			formitem['method'] = forms[i].xpath('.//@method').extract()
 			parameterslist = []
 			parameters = forms[i].xpath('.//input')
