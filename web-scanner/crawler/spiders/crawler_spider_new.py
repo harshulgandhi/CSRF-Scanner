@@ -9,188 +9,245 @@ import scrapy
 from scrapy.http import FormRequest
 from scrapy import log
 from crawler.forms import FormItem
-from crawler.forms import parameterItem 
+from crawler.forms import parameterItem	
 from url_map import UrlMap
 from scrapy.http.cookies import CookieJar
+from loginform import fill_login_form
+import re
 from json import dumps
 
 class CrawlerSpider(scrapy.Spider):
-    name = "crawler"
-    allowed_domains = ["app4.com"]
-    start_urls = ['https://app4.com']
-    LinkCount = 0
-    FormCount = 0
-    urlMapO = UrlMap()
-    formMapO = UrlMap()
-    formwriter = open ("crawler/forms.json","w")
-    linkwriter = open("crawler/links.json","w")
+	name = "crawler"
+	allowed_domains = []
+	start_urls = []
+	LinkCount = 0
+	FormCount = 0
+	counter = 0
+	urlMapO = UrlMap()
+	formMapO = UrlMap()
+	f = open("/home/user/CSRF-Scanner/web-scanner/crawler/allLinks.txt","w")
+	f1 = open("/home/user/CSRF-Scanner/web-scanner/crawler/response-url.txt","w")
+	formwriter = open ("crawler/forms.json","w")
+	linkwriter = open("crawler/links.json","w")
+	login_user = ''
+	login_pass= ''
+
+	def __init__(self):
+		self.login_user = raw_input("Enter username : ")
+		
+		self.login_pass = raw_input("Enter password : ")
+		
+		startUrl = raw_input("Enter login page : ")
+		self.start_urls.append(startUrl)
+		needle="(app.)"
+		heystack= self.start_urls[0]
+		dom = re.search(needle,heystack)
+		self.allowed_domains.append(str(dom.group(0))+".com")
+	'''
+	Function gets called automatically in the beginning,
+	it is only called once.
+	Logs in the application
+	'''
+	def parse(self,response):
+		if self.start_urls[0].find('app8.com') > -1:
+			self.printText(self.login_user)
+			self.printText(self.login_pass)
+			return scrapy.FormRequest.from_response(response, 
+				formdata={  'email': self.login_user, 'password': self.login_pass},
+				method="POST",
+				dont_filter=True,
+				callback=self.after_login)
+		else:
+			args, url, method = fill_login_form(response.url, response.body, self.login_user, self.login_pass)
+			self.printText("args "+str(args))
+			self.printText("url "+str(url))
+			self.printText("Method "+str(method))
+			self.printText("Printing login response")
+			self.printText(response)
+			return scrapy.FormRequest(url,method=method,formdata=args,dont_filter=True,callback=self.after_login)
+
+	'''
+	Call back function after
+	login
+	'''
+	def after_login(self, response):
+		# check login succeed before going on
+		self.printText("Beginning to scrape website")
+		self.printText(str(response.body))
+		self.printText("Response url "+str(response.url))
+		if "ERROR: Invalid username" in response.body:
+			self.log("Login failed", level=log.ERROR)
+			#return
+			
+		# continue scraping with authenticated session...
+		else:
+			self.printText("Successfully logged in to APP")
+			self.log("Login succeed!", level=log.DEBUG)
+				
+		link = response.url
+		self.urlMapO.addUrl(link)
+		return Request(url=link,callback=self.parse_page)
 
 
-    def start_requests(self):
-        return [scrapy.FormRequest(self.start_urls[0], 
-            formdata={'username': 'admin@admin.com', 'password': 'admin', 'dologin':'1'},
-            callback=self.after_login)]
+	# crawling all other urls in the site with the same
+	# authenticated session.
+	def parse_page(self, response):
+		""" Scrape useful stuff from page, and spawn new requests
+		"""
+		self.printText("Inside parse page function")
+		hxs = HtmlXPathSelector(response)
+		linkWithOnClick2 = hxs.select('//a[@onclick]/@href').extract()
+	   
+		for li in linkWithOnClick2:
+			self.printText("Found link with onClick : "+str(li))
+			if li.find("http") > -1:
+				self.printText("Found link with on")
+				if self.checkUrlStatus(li) != 1:
+					self.urlMapO.addUrl(li)
+					self.f.write("\n"+str(li))
+					self.linkFileWriter(link,get_base_url(response))
+
+			else:
+				self.printText("Writing executable links to text file")
+				liCmplt = urljoin_rfc(get_base_url(response),li)
+				if self.checkUrlStatus(liCmplt) != 1:
+					self.urlMapO.addUrl(liCmplt)
+					self.f.write("\n"+str(liCmplt))
+					self.linkFileWriter(liCmplt,get_base_url(response))
+
+		links = hxs.select('//a/@href').extract()
+
+		# Yield a new request for each link we found
+
+		for link in links:
+			self.printText("THIS IS A LINK=> " + link)
+			#only process external/full link
+			if link.find("http") > -1:
+				#checkUrlStatus calls another class where
+				#we are maintaining a map to check if
+				#a url has been visited.
+				#Infinite crawling avoidance.		
+				self.printText("Base url found i == "+str(link))
+				link = self.httpFixer(link)
+				if self.checkUrlStatus(link) == 1 or link.find('logout.php')>-1:
+					continue
+				else:
+					self.linkFileWriter(link,get_base_url(response))
+					self.f.write("\n"+str(link))
+					self.urlMapO.addUrl(link)
+					resp = Request(url=link, callback=self.parse_page)
+					yield resp
+			else:
+				# constructing page url by getting
+				# base url of current page for ex
+				#('http://appx.com/admin') and
+				# concatenating href link ('/status.php')
+				link = urljoin_rfc(get_base_url(response),link)
+				self.printText("Base url found i == "+str(get_base_url(response)))
+				
+				if self.checkUrlStatus(link) == 1 or link.find('logout.php')>-1:
+					continue
+				else:
+					self.linkFileWriter(link,get_base_url(response))
+					self.f.write("\n"+str(link))
+					self.urlMapO.addUrl(link)
+					resp = Request(url=link, callback=self.parse_page) 
+					#self.f.write("\n"+str(resp))
+					yield resp
+
+		forms = response.selector.xpath('//form')
+
+		for form in forms:
+			uniquestring = ""
+			if form.xpath('./@action'):
+				li = form.xpath('./@action').extract()[0]
+				if li.find("http") > -1:
+					url = li    
+				else:   
+					url = urljoin_rfc(get_base_url(response),li)
+
+				if form.xpath('.//@method'):
+					method = form.xpath('.//@method').extract()[0]
+				else:
+					method = "GET"
+				uniquestring = uniquestring+url
+				uniquestring = uniquestring+method
+				
+				parameterslist = []
+				parameters = form.xpath('.//input')
+				for parameter in parameters:
+
+					# Extracting type parameter
+					if parameter.xpath('.//@type'): 
+						typeparameter = parameter.xpath('.//@type').extract()[0]
+					
+					# Extracting name parameter 
+					if parameter.xpath('.//@name'):
+						name = parameter.xpath('.//@name').extract()[0]
+					else:
+						name = ''
+						
+					uniquestring = uniquestring + name                
+						
+					if parameter.xpath('.//@value'):
+						value = parameter.xpath('.//@value').extract()
+					else:
+						value = ''
+
+					formparameter = {'typeparameter':typeparameter,'name':name,'value':value}
+					parameterslist.append(formparameter)
 
 
-    def after_login(self, response):
-        # check login succeed before going on
-        self.printText(str(response.body))
-        if "ERROR: Invalid username" in response.body:
-            self.log("Login failed", level=log.ERROR)
-            return
-            
-        # continue scraping with authenticated session...
-        else:
-            self.printText("Successfully logged in to APP4")
-            self.log("Login succeed!", level=log.DEBUG)
-            
-            link = response.url
-            #self.printText("Page after Login"+str(response.url))
-            self.urlMapO.addUrl(link)
-            return Request(url=link,callback=self.parse_page)
+				if self.checkifformPresent(uniquestring) != 1:      
+					self.formFileWriter(url,response.url,method,parameterslist)
+					self.formMapO.addUrl(uniquestring)
 
-    def parse_page(self, response):
+	def collect_item(self, item):
+		return item
 
-        hxs = HtmlXPathSelector(response)
+	def checkUrlStatus(self,url):
+		return self.urlMapO.getUrlStatus(url)
 
-        linkWithOnClick2 = hxs.select('//a[@onclick]/@href').extract()
+	def checkifformPresent(self,string):
+		return self.formMapO.getUrlStatus(string)
 
-        for li in linkWithOnClick2:
-            self.printText("Found link with onClick : "+str(li))
-            if li.find("http") > -1:
-                self.printText("Found link with on")
-                if self.checkUrlStatus(li) != 1:
-                    self.urlMapO.addUrl(li)
-                    self.linkFileWriter(link,get_base_url(response))
+	def printText(self,text):
+		print text
+		print "=======================================================================================\n"
 
-            else:
-                liCmplt = urljoin_rfc(get_base_url(response),li)
-                if self.checkUrlStatus(liCmplt) != 1:
-                    self.urlMapO.addUrl(liCmplt)
-                    self.linkFileWriter(liCmplt,get_base_url(response))
+	def printPage(self,body,name):
+		fo = open(name,"w")
+		fo.write(body)
+		fo.close
 
-            self.printText("ONCLICK@href : "+str(li))
-            #self.urlMapO.addUrl(linksWOC)
-            #self.urlMapO.printMap()
-        links = hxs.select('//a/@href').extract()
+	def httpFixer(self,link):
+		if link.find("http:///") > -1:
+			return link.replace("http:///","http://",1)
+		elif link.find("https:///")>-1:
+			return link.replace("https:///","https://",1)
+		else:
+			return link
 
-        for link in links:
+	def linkFileWriter(self,link,referer):
+		self.LinkCount = self.LinkCount+1
+		requestType = 'Link'
+		method = 'Get'
+		parameters = []
+		injectionPoint = {'url':link,'referer':referer,'requestType':requestType,'method':method,'parameters':parameters}
+		self.linkwriter.write(dumps(injectionPoint, file, indent=4))
+		return
+	
+	def formFileWriter(self,link,referer,method,parameters):
+		self.FormCount=self.FormCount+1
+		requestType = 'Form'
+		injectionPoint =  {'url':link,'referer':referer,'requestType':requestType,'method':method,'parameters':parameters}
+		self.formwriter.write(dumps(injectionPoint,file,indent=4))
+		return
 
-            self.printText("THIS IS A LINK=> " + link)
-            #only process external/full link
-            if link.find("http") > -1:
-                #checkUrlStatus calls another class where
-                #we are maintaining a map to check if
-                #a url has been visited.
-                #Infinite crawling avoidance.       
-                if self.checkUrlStatus(link) == 1 or link.find('logout.php')>-1:
-                    continue
-                else:
-                    #self.f.write("\n"+str(link))
-                    self.linkFileWriter(link,get_base_url(response))
-                    self.urlMapO.addUrl(link)
-                    resp = Request(url=link, callback=self.parse_page) 
-                    yield resp
-            else:
-                # constructing page url by getting
-                # base url of current page for ex
-                #('http://appx.com/admin') and
-                # concatenating href link ('/status.php')
-                link = urljoin_rfc(get_base_url(response),link)
-                
-                if self.checkUrlStatus(link) == 1 or link.find('logout.php')>-1:
-                    continue
-                else:
-                    self.linkFileWriter(link,get_base_url(response))
-                    self.urlMapO.addUrl(link)
-                    resp = Request(url=link, callback=self.parse_page) 
-                    yield resp
-
-        forms = response.selector.xpath('//form')
-            
-        for form in forms:
-            uniquestring = ""
-            if form.xpath('./@action'):
-                li = form.xpath('./@action').extract()[0]
-                if li.find("http") > -1:
-                    url = li    
-                else:   
-                    url = urljoin_rfc(get_base_url(response),li)
-
-                if form.xpath('.//@method'):
-                    method = form.xpath('.//@method').extract()[0]
-                else:
-                    method = "GET"
-                uniquestring = uniquestring+url
-                uniquestring = uniquestring+method
-                
-                parameterslist = []
-                parameters = form.xpath('.//input')
-                for parameter in parameters:
-
-                    # Extracting type parameter
-                    if parameter.xpath('.//@type'): 
-                        typeparameter = parameter.xpath('.//@type').extract()[0]
-                    
-                    # Extracting name parameter 
-                    if parameter.xpath('.//@name'):
-                        name = parameter.xpath('.//@name').extract()[0]
-                    else:
-                        name = ''
-                        
-                    uniquestring = uniquestring + name                
-                        
-                    if parameter.xpath('.//@value'):
-                        value = parameter.xpath('.//@value').extract()
-                    else:
-                        value = ''
-
-                    formparameter = {'typeparameter':typeparameter,'name':name,'value':value}
-                    parameterslist.append(formparameter)
-
-
-                if self.checkifformPresent(uniquestring) != 1:      
-                    self.formFileWriter(url,response.url,method,parameterslist)
-                    self.formMapO.addUrl(uniquestring) 
-    
-    def collect_item(self, item):
-        return item
-
-    def checkUrlStatus(self,url):
-        return self.urlMapO.getUrlStatus(url)
-
-    def checkifformPresent(self,string):
-        return self.formMapO.getUrlStatus(string)
-
-    def printText(self,text):
-        print text
-        print "=======================================================================================\n"
-
-    def printPage(self,body,name):
-        fo = open(name,"w")
-        fo.write(body)
-        fo.close
-        return 
-
-    def linkFileWriter(self,link,referer):
-        self.LinkCount = self.LinkCount+1
-        requestType = 'Link'
-        method = 'Get'
-        parameters = []
-        injectionPoint = {'url':link,'referer':referer,'requestType':requestType,'method':method,'parameters':parameters}
-        self.linkwriter.write(dumps(injectionPoint, file, indent=4))
-        return
-
-    def formFileWriter(self,link,referer,method,parameters):
-        self.FormCount=self.FormCount+1
-        requestType = 'Form'
-        injectionPoint =  {'url':link,'referer':referer,'requestType':requestType,'method':method,'parameters':parameters}
-        self.formwriter.write(dumps(injectionPoint,file,indent=4))
-        return
-    def spider_closed(self, spider):
-        
-        print "Spider closed\n"
-        print "Link count =" + self.LinkCount+"\n"
-        print "Form Count =" + self.FormCount+"\n"
-        formwriter.close()
-        linkwriter.close() 
+	def spider_closed(self, spider):
+		
+		print "Spider closed\n"
+		print "Link count =" + self.LinkCount+"\n"
+		print "Form Count =" + self.FormCount+"\n"
+		self.formwriter.close()
+		self.linkwriter.close()
