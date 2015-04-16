@@ -16,6 +16,8 @@ from loginform import fill_login_form
 import re
 from json import dumps
 
+MAXURLCOUNT = 99
+
 class CrawlerSpider(scrapy.Spider):
 	name = "crawler"
 	allowed_domains = []
@@ -25,6 +27,7 @@ class CrawlerSpider(scrapy.Spider):
 	counter = 0
 	urlMapO = UrlMap()
 	formMapO = UrlMap()
+	dupLinkMapO = UrlMap()
 	f = open("/home/user/CSRF-Scanner/web-scanner/crawler/allLinks.txt","w")
 	f1 = open("/home/user/CSRF-Scanner/web-scanner/crawler/response-url.txt","w")
 	formwriter = open ("crawler/forms.json","w")
@@ -94,6 +97,9 @@ class CrawlerSpider(scrapy.Spider):
 	def parse_page(self, response):
 		""" Scrape useful stuff from page, and spawn new requests
 		"""
+		print "MAXURLCOUNT "+str(MAXURLCOUNT)
+		if self.urlMapO.getDupUrlCount(get_base_url(response)) > MAXURLCOUNT:
+		    return
 		self.printText("Inside parse page function")
 		hxs = HtmlXPathSelector(response)
 		linkWithOnClick2 = hxs.select('//a[@onclick]/@href').extract()
@@ -228,14 +234,21 @@ class CrawlerSpider(scrapy.Spider):
 		else:
 			return link
 
-	def linkFileWriter(self,link,referer):
-		self.LinkCount = self.LinkCount+1
-		requestType = 'Link'
-		method = 'Get'
-		parameters = []
-		injectionPoint = {'url':link,'referer':referer,'requestType':requestType,'method':method,'parameters':parameters}
-		self.linkwriter.write(dumps(injectionPoint, file, indent=4))
+	def linkFileWriter(self,link,referer,status):
+		if url.find('?') != -1:
+		    self.LinkCount = self.LinkCount+1
+		    requestType = 'Link'
+		    method = 'Get'
+		    parameters = []
+		    injectionPoint = {'url':link,'referer':referer,'status':status,'requestType':requestType,'method':method,'parameters':parameters}
+		    self.linkwriter.write(dumps(injectionPoint, file, indent=4))
 		return
+	def loginFormFileWriter(self,link,method,parameters):
+		requestType = 'Login'
+		referer = ''
+		LoginForm = {'url':link,'referer':referer,'requestType':requestType,'method':method,'parameters':parameters}
+		self.linkwriter.write(dumps(LoginForm, file, indent=4))
+		return 
 	
 	def formFileWriter(self,link,referer,method,parameters):
 		self.FormCount=self.FormCount+1

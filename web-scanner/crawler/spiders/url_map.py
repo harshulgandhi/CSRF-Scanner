@@ -24,3 +24,11 @@ class UrlMap():
 		else:
 			return 0
 
+	def getDupUrlCount(self,url):
+		count = 0
+		for key in self.urlMap:
+			if key.split('?')[0] == url.split('?')[0]:
+			    count = count + 1
+		return count
+
+
