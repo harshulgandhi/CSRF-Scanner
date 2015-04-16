@@ -27,11 +27,13 @@ class CrawlerSpider(scrapy.Spider):
 	counter = 0
 	urlMapO = UrlMap()
 	formMapO = UrlMap()
-	dupLinkMapO = UrlMap()
+	responsestatusMap = {}
+
 	f = open("/home/user/CSRF-Scanner/web-scanner/crawler/allLinks.txt","w")
 	f1 = open("/home/user/CSRF-Scanner/web-scanner/crawler/response-url.txt","w")
 	formwriter = open ("crawler/forms.json","w")
 	linkwriter = open("crawler/links.json","w")
+	responsewriter = open("crawler/response.json","w")
 	login_user = ''
 	login_pass= ''
 
@@ -111,7 +113,7 @@ class CrawlerSpider(scrapy.Spider):
 				if self.checkUrlStatus(li) != 1:
 					self.urlMapO.addUrl(li)
 					self.f.write("\n"+str(li))
-					self.linkFileWriter(link,get_base_url(response))
+					self.linkFileWriter(li,get_base_url(response))
 
 			else:
 				self.printText("Writing executable links to text file")
@@ -160,10 +162,15 @@ class CrawlerSpider(scrapy.Spider):
 					resp = Request(url=link, callback=self.parse_page) 
 					#self.f.write("\n"+str(resp))
 					yield resp
+		self.extractForms(response)
+		self.responsestatusMap[get_base_url(response)] = response.status
+		self.responsewriter.write(dumps(self.responsestatusMap, file, indent=4))
 
-		forms = response.selector.xpath('//form')
+					
+        def extractForms(self,response):
 
-		for form in forms:
+            forms = response.selector.xpath('//form')
+	    for form in forms:
 			uniquestring = ""
 			if form.xpath('./@action'):
 				li = form.xpath('./@action').extract()[0]
@@ -203,11 +210,12 @@ class CrawlerSpider(scrapy.Spider):
 					formparameter = {'typeparameter':typeparameter,'name':name,'value':value}
 					parameterslist.append(formparameter)
 
+				#End of parameter for loop 	
 
 				if self.checkifformPresent(uniquestring) != 1:      
 					self.formFileWriter(url,response.url,method,parameterslist)
 					self.formMapO.addUrl(uniquestring)
-
+				
 	def collect_item(self, item):
 		return item
 
@@ -234,13 +242,13 @@ class CrawlerSpider(scrapy.Spider):
 		else:
 			return link
 
-	def linkFileWriter(self,link,referer,status):
-		if url.find('?') != -1:
+	def linkFileWriter(self,link,referer):
+		if link.find('?') != -1:
 		    self.LinkCount = self.LinkCount+1
 		    requestType = 'Link'
 		    method = 'Get'
 		    parameters = []
-		    injectionPoint = {'url':link,'referer':referer,'status':status,'requestType':requestType,'method':method,'parameters':parameters}
+		    injectionPoint = {'url':link,'referer':referer,'requestType':requestType,'method':method,'parameters':parameters}
 		    self.linkwriter.write(dumps(injectionPoint, file, indent=4))
 		return
 	def loginFormFileWriter(self,link,method,parameters):
