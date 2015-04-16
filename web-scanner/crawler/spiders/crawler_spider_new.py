@@ -103,26 +103,10 @@ class CrawlerSpider(scrapy.Spider):
 		if self.urlMapO.getDupUrlCount(get_base_url(response)) > MAXURLCOUNT:
 		    return
 		self.printText("Inside parse page function")
-		hxs = HtmlXPathSelector(response)
-		linkWithOnClick2 = hxs.select('//a[@onclick]/@href').extract()
-	   
-		for li in linkWithOnClick2:
-			self.printText("Found link with onClick : "+str(li))
-			if li.find("http") > -1:
-				self.printText("Found link with on")
-				if self.checkUrlStatus(li) != 1:
-					self.urlMapO.addUrl(li)
-					self.f.write("\n"+str(li))
-					self.linkFileWriter(li,get_base_url(response))
-
-			else:
-				self.printText("Writing executable links to text file")
-				liCmplt = urljoin_rfc(get_base_url(response),li)
-				if self.checkUrlStatus(liCmplt) != 1:
-					self.urlMapO.addUrl(liCmplt)
-					self.f.write("\n"+str(liCmplt))
-					self.linkFileWriter(liCmplt,get_base_url(response))
-
+		
+	   	self.processGetLinks(response)
+		
+	   	hxs = HtmlXPathSelector(response)
 		links = hxs.select('//a/@href').extract()
 
 		# Yield a new request for each link we found
@@ -153,7 +137,7 @@ class CrawlerSpider(scrapy.Spider):
 				link = urljoin_rfc(get_base_url(response),link)
 				self.printText("Base url found i == "+str(get_base_url(response)))
 				
-				if self.checkUrlStatus(link) == 1 or link.find('logout.php')>-1:
+				if self.checkUrlStatus(link) == 1 or link.find('logout')>-1:
 					continue
 				else:
 					self.linkFileWriter(link,get_base_url(response))
@@ -166,6 +150,31 @@ class CrawlerSpider(scrapy.Spider):
 		self.responsestatusMap[get_base_url(response)] = response.status
 		self.responsewriter.write(dumps(self.responsestatusMap, file, indent=4))
 
+
+	'''
+	Function to process 'GET' urls
+	present on a page
+	@param response: current response 
+	'''
+	def processGetLinks(self,response):
+		hxs = HtmlXPathSelector(response)
+		linkWithOnClick2 = hxs.select('//a[@onclick]/@href').extract()
+		for li in linkWithOnClick2:
+			self.printText("Found link with onClick : "+str(li))
+			if li.find("http") > -1:
+				self.printText("Found link with on")
+				if self.checkUrlStatus(li) != 1:
+					self.urlMapO.addUrl(li)
+					self.f.write("\n"+str(li))
+					self.linkFileWriter(li,get_base_url(response))
+
+			else:
+				self.printText("Writing executable links to text file")
+				liCmplt = urljoin_rfc(get_base_url(response),li)
+				if self.checkUrlStatus(liCmplt) != 1:
+					self.urlMapO.addUrl(liCmplt)
+					self.f.write("\n"+str(liCmplt))
+					self.linkFileWriter(liCmplt,get_base_url(response))
 					
         def extractForms(self,response):
 
