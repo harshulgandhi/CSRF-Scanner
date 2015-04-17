@@ -15,6 +15,9 @@ from scrapy.http.cookies import CookieJar
 from loginform import fill_login_form
 import re
 from json import dumps
+from scrapy import signals 
+from scrapy.xlib.pydispatch import dispatcher
+
 
 MAXURLCOUNT = 99
 
@@ -31,8 +34,7 @@ class CrawlerSpider(scrapy.Spider):
 
 	f = open("/home/user/CSRF-Scanner/web-scanner/crawler/allLinks.txt","w")
 	f1 = open("/home/user/CSRF-Scanner/web-scanner/crawler/response-url.txt","w")
-	formwriter = open ("crawler/forms.json","w")
-	linkwriter = open("crawler/links.json","w")
+	requestwriter = open ("crawler/requests.json","w")
 	responsewriter = open("crawler/response.json","w")
 	login_user = ''
 	login_pass= ''
@@ -48,6 +50,7 @@ class CrawlerSpider(scrapy.Spider):
 		heystack= self.start_urls[0]
 		dom = re.search(needle,heystack)
 		self.allowed_domains.append(str(dom.group(0))+".com")
+		dispatcher.connect(self.spider_closed,signals.spider_closed)
 	'''
 	Function gets called automatically in the beginning,
 	it is only called once.
@@ -68,6 +71,8 @@ class CrawlerSpider(scrapy.Spider):
 			self.printText("url "+str(url))
 			self.printText("Method "+str(method))
 			self.printText("Printing login response")
+			self.requestwriter.write("{'data':[")
+			self.loginFormFileWriter(self.start_urls[0],url,method,args)
 			self.printText(response)
 			return scrapy.FormRequest(url,method=method,formdata=args,dont_filter=True,callback=self.after_login)
 
@@ -203,7 +208,7 @@ class CrawlerSpider(scrapy.Spider):
 					uniquestring = uniquestring + name                
 						
 					if parameter.xpath('.//@value'):
-						value = parameter.xpath('.//@value').extract()
+						value = parameter.xpath('.//@value').extract()[0]
 					else:
 						value = ''
 
@@ -249,26 +254,38 @@ class CrawlerSpider(scrapy.Spider):
 		    method = 'Get'
 		    parameters = []
 		    injectionPoint = {'url':link,'referer':referer,'requestType':requestType,'method':method,'parameters':parameters}
-		    self.linkwriter.write(dumps(injectionPoint, file, indent=4))
+		    self.requestwriter.write(dumps(injectionPoint, file, indent=4))
+		    self.requestwriter.write(",")
 		return
-	def loginFormFileWriter(self,link,method,parameters):
+	def loginFormFileWriter(self,url,target,method,args):
+		parameters = []
+		for parameter in args:
+			name = parameter[0]
+			value = parameter[1]
+			typeparameter = 'text'
+			formparameter = {'typeparameter':typeparameter,'name':name,'value':value}
+			parameters.append(formparameter)
+
 		requestType = 'Login'
 		referer = ''
-		LoginForm = {'url':link,'referer':referer,'requestType':requestType,'method':method,'parameters':parameters}
-		self.linkwriter.write(dumps(LoginForm, file, indent=4))
+		LoginForm = {'url':target,'referer':url,'requestType':requestType,'method':method,'parameters':parameters}
+		self.requestwriter.write(dumps(LoginForm, file, indent=4))
+		self.requestwriter.write(",")
 		return 
 	
 	def formFileWriter(self,link,referer,method,parameters):
 		self.FormCount=self.FormCount+1
 		requestType = 'Form'
 		injectionPoint =  {'url':link,'referer':referer,'requestType':requestType,'method':method,'parameters':parameters}
-		self.formwriter.write(dumps(injectionPoint,file,indent=4))
+		self.requestwriter.write(dumps(injectionPoint,file,indent=4))
+		self.requestwriter.write(",")
 		return
 
 	def spider_closed(self, spider):
 		
 		print "Spider closed\n"
-		print "Link count =" + self.LinkCount+"\n"
-		print "Form Count =" + self.FormCount+"\n"
-		self.formwriter.close()
-		self.linkwriter.close()
+		print "Link count =" + str(self.LinkCount)+"\n"
+		print "Form Count =" + str(self.FormCount)+"\n"
+		self.requestwriter.write("]}")
+		self.requestwriter.close()
+		self.responsewriter.close()
