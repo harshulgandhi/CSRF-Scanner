@@ -71,7 +71,7 @@ class CrawlerSpider(scrapy.Spider):
 			self.printText("url "+str(url))
 			self.printText("Method "+str(method))
 			self.printText("Printing login response")
-			self.requestwriter.write("{'data':[")
+			self.requestwriter.write("{\"data\":[")
 			self.loginFormFileWriter(self.start_urls[0],url,method,args)
 			self.printText(response)
 			return scrapy.FormRequest(url,method=method,formdata=args,dont_filter=True,callback=self.after_login)
