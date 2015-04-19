@@ -19,7 +19,7 @@ from scrapy import signals
 from scrapy.xlib.pydispatch import dispatcher
 
 
-MAXURLCOUNT = 99
+MAXURLCOUNT = 200
 
 class CrawlerSpider(scrapy.Spider):
 	name = "crawler"
@@ -185,15 +185,16 @@ class CrawlerSpider(scrapy.Spider):
 
             forms = response.selector.xpath('//form')
 	    for form in forms:
-			uniquestring = ""
-			if form.xpath('./@action'):
-				li = form.xpath('./@action').extract()[0]
-				if li.find("http") > -1:
-					url = li    
-				else:   
-					url = urljoin_rfc(get_base_url(response),li)
+			        uniquestring = ""
+			        action = ""
+			        if form.xpath('./@action'):
+			            action = form.xpath('./@action').extract()[0]
+				    if action.find("http") > -1:
+					url = action    
+				    else:   
+					url = urljoin_rfc(get_base_url(response),action)
 
-				if form.xpath('.//@method'):
+			        if form.xpath('.//@method'):
 					method = form.xpath('.//@method').extract()[0]
 				else:
 					method = "GET"
@@ -227,7 +228,7 @@ class CrawlerSpider(scrapy.Spider):
 				#End of parameter for loop 	
 
 				if self.checkifformPresent(uniquestring) != 1:      
-					self.formFileWriter(url,response.url,method,parameterslist)
+					self.formFileWriter(url,response.url,action,method,parameterslist)
 					self.formMapO.addUrl(uniquestring)
 				
 	def collect_item(self, item):
@@ -257,16 +258,20 @@ class CrawlerSpider(scrapy.Spider):
 			return link
 
 	def linkFileWriter(self,link,referer):
+		action = ""
 		if link.find('?') != -1:
+		    self.counter = self.counter+1
 		    self.LinkCount = self.LinkCount+1
 		    requestType = 'Link'
 		    method = 'Get'
 		    parameters = []
-		    injectionPoint = {'url':link,'referer':referer,'requestType':requestType,'method':method,'parameters':parameters}
+		    injectionPoint = {'count':self.counter,'url':link,'referer':referer,'action':action,'requestType':requestType,'method':method,'parameters':parameters}
 		    self.requestwriter.write(dumps(injectionPoint, file, indent=4))
 		    self.requestwriter.write(",")
 		return
 	def loginFormFileWriter(self,url,target,method,args):
+		self.counter = self.counter+1
+		action = ""
 		parameters = []
 		for parameter in args:
 			name = parameter[0]
@@ -277,15 +282,16 @@ class CrawlerSpider(scrapy.Spider):
 
 		requestType = 'Login'
 		referer = ''
-		LoginForm = {'url':target,'referer':url,'requestType':requestType,'method':method,'parameters':parameters}
+		LoginForm = {'count':self.counter,'url':target,'referer':url,'action':action,'requestType':requestType,'method':method,'parameters':parameters}
 		self.requestwriter.write(dumps(LoginForm, file, indent=4))
 		self.requestwriter.write(",")
 		return 
 	
-	def formFileWriter(self,link,referer,method,parameters):
+	def formFileWriter(self,link,referer,action,method,parameters):
+		self.counter = self.counter+1
 		self.FormCount=self.FormCount+1
 		requestType = 'Form'
-		injectionPoint =  {'url':link,'referer':referer,'requestType':requestType,'method':method,'parameters':parameters}
+		injectionPoint =  {'count':self.counter,'url':link,'referer':referer,'action':action,'requestType':requestType,'method':method,'parameters':parameters}
 		self.requestwriter.write(dumps(injectionPoint,file,indent=4))
 		self.requestwriter.write(",")
 		return
