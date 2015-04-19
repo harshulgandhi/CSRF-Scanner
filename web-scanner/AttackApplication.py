@@ -4,6 +4,7 @@ import urllib2
 from time import time
 from lxml import html
 from urlparse import urlparse
+from json import dumps
 
 class NoRedirectHandler(urllib2.HTTPRedirectHandler):
     def http_error_303(self, req, fp, code, msg, headers):
@@ -16,12 +17,29 @@ class NoRedirectHandler(urllib2.HTTPRedirectHandler):
     http_error_302 = http_error_303
     http_error_307 = http_error_303
 
+'''
+class SmartRedirectHandler(urllib2.HTTPRedirectHandler):     
+    def http_error_302(self, req, fp, code, msg, headers):  
+        result = urllib2.HTTPRedirectHandler.http_error_301( 
+            self, req, fp, code, msg, headers)              
+        result.status = code                                 
+        return result                                       
 
+    def http_error_303(self, req, fp, code, msg, headers):   
+        result = urllib2.HTTPRedirectHandler.http_error_302(
+            self, req, fp, code, msg, headers)              
+        result.status = code                                
+        return result
+
+'''
 class AttackApplication(object):
 
-	def __init__(self,filename):
-		self.filename = filename
+	def __init__(self,inputFilename,outputFilename):
+		self.filename = inputFilename
 		self.fileobj = open(self.filename,"r")
+		self.outputFilename = outputFilename
+		self.outputfileobj = open(self.outputFilename,"w")
+		self.writeOutputFileHeader()
 
 	def login(self,url,dataU):
 
@@ -30,7 +48,17 @@ class AttackApplication(object):
 		res = urllib2.urlopen(req)
 		cook = res.info()['Set-Cookie']	
 		return cook
+        
+        def writeOutputFileHeader(self):
+		self.outputfileobj.write("{\"Success_Attack_Vectors\":[")
 
+        def writeoutputFileTail(self):
+	        self.outputfileobj.write("]}")
+
+        def writeToOutputFile(self,reqObj):
+                self.outputfileobj.write(dumps(reqObj, file, indent=4))
+                self.outputfileobj.write(",")
+                         
 	def resolveParam(self,param):
 		paramType = param["typeparameter"][0]
 
@@ -69,13 +97,27 @@ class AttackApplication(object):
 				values[pName]=pValue
         	return values
 
-        def makeRequestLink(self,url):
+        def makeRequestLink(self,url,parameters,requestType):
         
             opener = urllib2.build_opener(NoRedirectHandler())
             urllib2.install_opener(opener)
-            req = urllib2.Request(url)
-            req.add_header("Cookie",self.cookie)
-            res = urllib2.urlopen(req)
+	    if requestType.upper() == "FORM":
+	        requrl = self.prepareUrl(url,parameters)
+	    else:
+                requrl = url
+            try:	 	
+                req = urllib2.Request(requrl)
+                req.add_header("Cookie",self.cookie)
+		try:
+                    res = urllib2.urlopen(req)
+                except urllib2.URLError, e:
+  		    return e.code
+  	        else:
+  		    return res.getcode()
+            except Exception, e:
+	        print "Exception in makeRequest"
+		print url
+		print e
             return res.getcode()
 
 	def makeRequest(self,url,method,parameters,isLogin):
@@ -102,7 +144,6 @@ class AttackApplication(object):
 				print "Exception in makeRequest"
 				print url
 				print e
-				exit()
 
 		else:
 			dataU = self.postUrl(parameters)
@@ -135,11 +176,13 @@ class AttackApplication(object):
 
 
 	def compareForm(self,res1,res2,act):
+                print "Debug"   
+                if res1 == "" or res2 == "":
+	            return False
 		tree = html.fromstring(res1)
 		form1 = tree.xpath('//form[@action="'+act+'"]')
-
 		if len(form1) == 0: #Note that this means that csrf not possible
-			return True
+	            return True
 		html1 = html.tostring(form1[0]).strip()
 
 		tree = html.fromstring(res2)
@@ -165,6 +208,11 @@ class AttackApplication(object):
 	 		contnlogin = resnlogin.read().strip()
 	 	elif rstatnlogin == False:
 	 		return True 
+
+                compres = self.compareForm(contlogin,contnlogin,action)
+		return compres
+                    
+                '''
 		#If it is link directly compare the string
 		if requestType.upper() == "LINK":
 			if contlogin == contnlogin:
@@ -173,9 +221,9 @@ class AttackApplication(object):
 				return False
 		#else if it is form then need to compare the form
 		elif requestType.upper() == "FORM":
-			compres = self.compareForm(contlogin,contnlogin,action)
-			return compres
-			
+			c
+		'''
+	
 	def loginnotlogincheck(self,url,target,action,requestType):
 		contlogin = ""
 		contnlogin = ""
@@ -190,6 +238,12 @@ class AttackApplication(object):
 	 		contnlogin = resnlogin.read().strip()
 	 	elif rstatnlogin == False:
 	 		return True 
+                
+                compres = self.compareForm(contlogin,contnlogin,action)
+                return not compres
+                
+                # Commented as we have different handling for the Link  
+                '''
 		#If it is link directly compare the string
 		if requestType.upper() == "LINK":
 			if contlogin == contnlogin:
@@ -200,11 +254,16 @@ class AttackApplication(object):
 		elif requestType.upper() == "FORM":
 			compres = self.compareForm(contlogin,contnlogin,action)
 			return not compres
-			
-
+		'''	
+        def checkValidForm(self,referer,url,method,action,parameters):
+            #Check 1:
+            if method.upper() == "POST":
+	        if len(parameters) == 0:
+		    return False;
+	    return True;     
 	def attack(self):
 		self.count =0
-		attackSuccessList = []
+		#attackSuccessList = []
 		jsonstr = self.fileobj.read()
 		jsonObj = json.loads(jsonstr)
 		jsonArray = jsonObj["data"]
@@ -225,42 +284,59 @@ class AttackApplication(object):
                             if url.find('database.php') != -1:
 		                print "Skipping "+str(url)+" due to filtered keyword"
                                 continue
-                            rescode = self.makeRequestLink(url)
-                            print str(rescode)
-                	    if rescode == 302:
+                            rescode = self.makeRequestLink(url,parameters,requestType)
+                            print rescode
+                	    if rescode == 302 or rescode == 303:
                                 print "CSRF possible in "+str(self.count)
-                                attackSuccessList.append(self.count)
+				self.writeToOutputFile(reqObj)
+                                #attackSuccessList.append(self.count)
                 	    else:
                 		print "CSRF not possible in "+str(self.count)
                              
-
-
-			else: 
+			else:
+			    	 
                             print "Checking CSRF in Forms"
+                            if not(self.checkValidForm(referer,url,method,action,parameters)):
+                                print "CSRF not possible as invalid form request"
+                                continue;    
 		 	    #(url,method,referer,action,requestType,parameters) = self.getRequestData(reqObj)	
 		 	    res1 = self.loginnotlogincheck(referer,url,action,requestType)
 		 	    if res1 == True:
 		 		    res2 = self.loginlogincheck(referer,url,action,requestType)
 		 		    if res2 == True:
-					   
-		 			    (rstatus, res3) = self.makeRequest(url,method,parameters,"True")
-		 			    if rstatus == True:
+					    if (method.upper() == "POST"):
+		 			        (rstatus, res3) = self.makeRequest(url,method,parameters,"True")
+		 			        if rstatus == True:
 		 				    print "CSRF possible in "+str(self.count)
-                                                    attackSuccessList.append(self.count) 
-		 			    else:
+                                                    self.writeToOutputFile(reqObj)
+                                                    #attackSuccessList.append(self.count) 
+		 			        else:
 		 				    print "CSRF not possible in "+str(self.count)+" condition 3 fails"
+                                            
+                                            else:
+                                                    rescode = self.makeRequestLink(url,parameters,requestType)
+                                                    print str(rescode)
+                	                            if rescode == 302 or rescode == 303:
+                                                        print "CSRF possible in "+str(self.count)
+                                                        self.writeToOutputFile(reqObj)
+                                                        #attackSuccessList.append(self.count)
+                	                            else:
+                		                        print "CSRF not possible in "+str(self.count)               
 		 		    else:
 		 			    print "CSRF not possible in "+str(self.count)+" condition 2 fails"
 		 	    else:
 		 		    print "CSRF not possible in "+str(self.count)+" condition 1 fails"
-
-		return attackSuccessList
+                    
+    
+        def step3End(self):
+             self.writeoutputFileTail()
+             self.fileobj.close()
+             self.outputfileobj.close()
 
 if __name__ == "__main__":
 
-	obj = AttackApplication("requests.json")
-	attackSuccessList = obj.attack()
-	print "Successful Attacks Lists"
-	print attackSuccessList
+	obj = AttackApplication("stage2Output.json","stage3Output.json")
+	obj.attack()
+        obj.step3End()
 
 

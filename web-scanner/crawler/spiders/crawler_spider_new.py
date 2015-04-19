@@ -34,7 +34,7 @@ class CrawlerSpider(scrapy.Spider):
 
 	f = open("/home/user/CSRF-Scanner/web-scanner/crawler/allLinks.txt","w")
 	f1 = open("/home/user/CSRF-Scanner/web-scanner/crawler/response-url.txt","w")
-	requestwriter = open ("crawler/requests.json","w")
+	requestwriter = open ("stage1Output.json","w")
 	responsewriter = open("crawler/response.json","w")
 	login_user = ''
 	login_pass= ''
@@ -66,7 +66,7 @@ class CrawlerSpider(scrapy.Spider):
 				dont_filter=True,
 				callback=self.after_login)
 		else:
-			args, url, method = fill_login_form(response.url, response.body, self.login_user, self.login_pass)
+			args, url, method = fill_login_form(get_base_url(response), response.body, self.login_user, self.login_pass)
 			self.printText("args "+str(args))
 			self.printText("url "+str(url))
 			self.printText("Method "+str(method))
@@ -84,7 +84,7 @@ class CrawlerSpider(scrapy.Spider):
 		# check login succeed before going on
 		self.printText("Beginning to scrape website")
 		self.printText(str(response.body))
-		self.printText("Response url "+str(response.url))
+		self.printText("Response url "+str(get_base_url(response)))
 		if "ERROR: Invalid username" in response.body:
 			self.log("Login failed", level=log.ERROR)
 			#return
@@ -94,7 +94,7 @@ class CrawlerSpider(scrapy.Spider):
 			self.printText("Successfully logged in to APP")
 			self.log("Login succeed!", level=log.DEBUG)
 				
-		link = response.url
+		link = get_base_url(response)
 		self.urlMapO.addUrl(link)
 		return Request(url=link,callback=self.parse_page)
 
@@ -104,7 +104,10 @@ class CrawlerSpider(scrapy.Spider):
 	def parse_page(self, response):
 		""" Scrape useful stuff from page, and spawn new requests
 		"""
-		print "MAXURLCOUNT "+str(MAXURLCOUNT)
+		#print "MAXURLCOUNT "+str(MAXURLCOUNT)
+                #print "DebugInfo"
+                #print str(response)
+                #print str(get_base_url(response)) 
 		if self.urlMapO.getDupUrlCount(get_base_url(response)) > MAXURLCOUNT:
 		    return
 		self.printText("Inside parse page function")
@@ -228,7 +231,7 @@ class CrawlerSpider(scrapy.Spider):
 				#End of parameter for loop 	
 
 				if self.checkifformPresent(uniquestring) != 1:      
-					self.formFileWriter(url,response.url,action,method,parameterslist)
+					self.formFileWriter(url,get_base_url(response),action,method,parameterslist)
 					self.formMapO.addUrl(uniquestring)
 				
 	def collect_item(self, item):
@@ -266,8 +269,8 @@ class CrawlerSpider(scrapy.Spider):
 		    method = 'Get'
 		    parameters = []
 		    injectionPoint = {'count':self.counter,'url':link,'referer':referer,'action':action,'requestType':requestType,'method':method,'parameters':parameters}
+                    self.requestwriter.write(",") 
 		    self.requestwriter.write(dumps(injectionPoint, file, indent=4))
-		    self.requestwriter.write(",")
 		return
 	def loginFormFileWriter(self,url,target,method,args):
 		self.counter = self.counter+1
@@ -284,16 +287,16 @@ class CrawlerSpider(scrapy.Spider):
 		referer = ''
 		LoginForm = {'count':self.counter,'url':target,'referer':url,'action':action,'requestType':requestType,'method':method,'parameters':parameters}
 		self.requestwriter.write(dumps(LoginForm, file, indent=4))
-		self.requestwriter.write(",")
 		return 
 	
 	def formFileWriter(self,link,referer,action,method,parameters):
+		
 		self.counter = self.counter+1
 		self.FormCount=self.FormCount+1
 		requestType = 'Form'
 		injectionPoint =  {'count':self.counter,'url':link,'referer':referer,'action':action,'requestType':requestType,'method':method,'parameters':parameters}
+                self.requestwriter.write(",") 
 		self.requestwriter.write(dumps(injectionPoint,file,indent=4))
-		self.requestwriter.write(",")
 		return
 
 	def spider_closed(self, spider):
